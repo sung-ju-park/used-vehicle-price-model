@@ -1,0 +1,193 @@
+{
+ "tables": {
+  "raw_listings": 426880,
+  "clean_listings": 344336,
+  "vehicles": 187707
+ },
+ "checks": [
+  {
+   "name": "price_range",
+   "level": "error",
+   "desc": "학습 데이터에 가격 범위(1,000~150,000달러) 밖 매물이 있다",
+   "count": 0,
+   "passed": true
+  },
+  {
+   "name": "year_range",
+   "level": "error",
+   "desc": "학습 데이터에 연식 범위(1995~2022) 밖 매물이 있다",
+   "count": 0,
+   "passed": true
+  },
+  {
+   "name": "odometer_rule",
+   "level": "error",
+   "desc": "주행거리가 비었거나 범위 밖이거나, 2년 넘은 차인데 100마일 미만(자리표시)이다",
+   "count": 0,
+   "passed": true
+  },
+  {
+   "name": "required_fields",
+   "level": "error",
+   "desc": "제조사·모델명·주(state)·기본 모델명 중 비어 있는 값이 있다",
+   "count": 0,
+   "passed": true
+  },
+  {
+   "name": "clean_follows_rules",
+   "level": "error",
+   "desc": "정제 테이블(clean_listings)에 정제 규칙을 어긴 매물이 남아 있다",
+   "count": 0,
+   "passed": true
+  },
+  {
+   "name": "latest_posting_kept",
+   "level": "error",
+   "desc": "같은 차의 게시물 중 가장 최근 것(ID가 가장 큰 것)을 남기지 않은 차가 있다",
+   "count": 0,
+   "passed": true
+  },
+  {
+   "name": "postings_count",
+   "level": "error",
+   "desc": "차량별 게시 횟수(n_postings)가 정제 테이블의 실제 게시물 수와 다르다",
+   "count": 0,
+   "passed": true
+  },
+  {
+   "name": "every_vehicle_kept",
+   "level": "error",
+   "desc": "정제 테이블에는 있는데 차량 테이블에서 빠진 차가 있다",
+   "count": 0,
+   "passed": true
+  },
+  {
+   "name": "vin_split_leak",
+   "level": "error",
+   "desc": "올바른 VIN이 같은 차가 서로 다른 데이터 묶음(학습·검증·평가 등)에 함께 들어가 있다",
+   "count": 0,
+   "passed": true
+  },
+  {
+   "name": "invalid_vin_across_splits",
+   "level": "warn",
+   "desc": "형식이 틀린 17자리 VIN(I·O·Q 포함)이 여러 묶음에 나뉘어 있다. 광고 문구를 VIN 칸에 쓴 다른 차들이거나, 0을 O로 잘못 적은 같은 차일 수 있다",
+   "count": 2,
+   "passed": true
+  },
+  {
+   "name": "split_share",
+   "level": "error",
+   "desc": "데이터 묶음 비율이 설정(학습 55·조기 종료 5·검증 10·보정 10·평가 20%)과 0.1%p 넘게 다르다",
+   "count": 0,
+   "passed": true
+  },
+  {
+   "name": "possible_residual_duplicate",
+   "level": "warn",
+   "desc": "평가 데이터의 차 중, 제조사·모델·연식·주행거리·가격이 모두 같은 차가 다른 묶음에도 있다 (한쪽만 VIN을 적은 같은 차일 수 있음)",
+   "count": 141,
+   "passed": true
+  },
+  {
+   "name": "placeholder_price",
+   "level": "warn",
+   "desc": "111,111달러·123,456달러처럼 자리표시로 보이는 가격이 학습 데이터에 남아 있다",
+   "count": 174,
+   "passed": true
+  }
+ ],
+ "recompute": [
+  {
+   "item": "정제: 가격 범위",
+   "sql": 380369.0,
+   "pandas": 380369.0,
+   "match": true
+  },
+  {
+   "item": "정제: 연식 범위",
+   "sql": 364247.0,
+   "pandas": 364247.0,
+   "match": true
+  },
+  {
+   "item": "정제: 주행거리",
+   "sql": 358266.0,
+   "pandas": 358266.0,
+   "match": true
+  },
+  {
+   "item": "정제: 제조사·모델",
+   "sql": 344338.0,
+   "pandas": 344338.0,
+   "match": true
+  },
+  {
+   "item": "정제: 모델명 해석",
+   "sql": 344336.0,
+   "pandas": 344336.0,
+   "match": true
+  },
+  {
+   "item": "중복 제거 후 차량 수",
+   "sql": 187707.0,
+   "pandas": 187707.0,
+   "match": true
+  },
+  {
+   "item": "VIN 있는 매물",
+   "sql": 265838.0,
+   "pandas": 265838.0,
+   "match": true
+  },
+  {
+   "item": "서로 다른 VIN",
+   "sql": 118246.0,
+   "pandas": 118246.0,
+   "match": true
+  },
+  {
+   "item": "반복 게시된 VIN",
+   "sql": 40280.0,
+   "pandas": 40280.0,
+   "match": true
+  },
+  {
+   "item": "반복 게시물 수",
+   "sql": 187872.0,
+   "pandas": 187872.0,
+   "match": true
+  },
+  {
+   "item": "최대 반복 횟수",
+   "sql": 261.0,
+   "pandas": 261.0,
+   "match": true
+  },
+  {
+   "item": "같은 가격 비율",
+   "sql": 0.9108738828202582,
+   "pandas": 0.9108738828202582,
+   "match": true
+  },
+  {
+   "item": "여러 지역 비율",
+   "sql": 0.6680734856007945,
+   "pandas": 0.6680734856007945,
+   "match": true
+  },
+  {
+   "item": "트럭·픽업 비율",
+   "sql": 0.14847075495319834,
+   "pandas": 0.14847075495319834,
+   "match": true
+  },
+  {
+   "item": "평가 데이터 차량 수",
+   "sql": 37541.0,
+   "pandas": 37541.0,
+   "match": true
+  }
+ ],
+ "training_view_matches": true
+}

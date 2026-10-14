@@ -1,5 +1,6 @@
 """분석 결과를 한 장짜리 HTML 리포트로 만든다 (그림 포함 단일 파일). 모든 숫자는 results.json에서 가져온다."""
 import base64
+import json
 import html as H
 
 from config import FIG, OUT, SEGMENT_KO
@@ -24,7 +25,8 @@ def usd(x):
 def build(r):
     ov, m, lk, iv, sg, tr, ct, an, dup = (r[k] for k in ["overview", "models", "leakage", "intervals", "segments",
                                                          "truck_only", "contributions", "anomalies", "duplicates"])
-    best, table = m["XGBoost (튜닝)"], m["기준선: 시세표"]
+    sel = r["selected"]
+    best, table = r["test"]["selected"], r["test"]["price_table"]   # 평가 데이터: 최종 모델 + 시세표(참고)
     rf, rfte = m["Random Forest"], m.get("Random Forest (평균가 인코딩)")
     seg_m = {d["group"]: d for d in sg["segment_model"]}
     seg_t = {d["group"]: d for d in sg["segment_table"]}
@@ -40,7 +42,7 @@ def build(r):
         for f in r["funnel"])
     order = sorted(m.items(), key=lambda kv: kv[1]["mdape"])
     model_rows = "".join(
-        f"<tr{' class=hl' if k == 'XGBoost (튜닝)' else ''}><td>{H.escape(k)}</td><td class='n'>{pct(v['mdape'])}</td>"
+        f"<tr{' class=hl' if k == sel else ''}><td>{H.escape(k)}</td><td class='n'>{pct(v['mdape'])}</td>"
         f"<td class='n'>{pct(v['within_10'])}</td><td class='n'>{pct(v['within_20'])}</td><td class='n'>{usd(v['mae_usd'])}</td>"
         f"<td class='n'>{v['r2_log']:.3f}</td><td class='n'>{v['train_seconds']:.0f}초</td></tr>" for k, v in order)
     seg_rows = "".join(
@@ -60,7 +62,7 @@ def build(r):
     age = ct["age"]
     age_neutral = next((int(x) for x, e in zip(age["x"], age["effect_pct"]) if e <= 0), 10)
     age15 = dict(zip(age["x"], age["effect_pct"])).get(15.0, age["effect_pct"][-1])
-    xgb0 = m["XGBoost (기본 설정)"]
+    xgb0, xgb1 = m["XGBoost (기본 설정)"], m["XGBoost (튜닝)"]
     truck_gain = tr["global"]["mdape"] - tr["truck_only"]["mdape"]
     rf_text = ""
     if rfte:
@@ -68,6 +70,19 @@ def build(r):
                    f"원인을 보니 {ov['n_models']}개 모델을 정수 코드로 넣어서, 나무가 '코드 번호가 큰 쪽과 작은 쪽'으로만 나눌 수 있어 모델 정보를 거의 쓰지 못하고 있었습니다. "
                    f"모델·제조사·주의 평균 가격을 숫자로 바꿔 넣자(5겹 교차 방식의 타깃 인코딩) {pct(rfte['mdape'])}로 좋아졌습니다. "
                    f"모델을 비교할 때 한쪽만 불리한 입력을 쓰고 있지 않은지 먼저 확인해야 공정한 비교가 됩니다.</p>")
+
+    sql_note = ""
+    dq_path = OUT / "data_quality.json"
+    if dq_path.exists():
+        dq = json.loads(dq_path.read_text(encoding="utf-8"))
+        n_err = sum(c["level"] == "error" for c in dq["checks"])
+        n_ok = sum(c["level"] == "error" and c["count"] == 0 for c in dq["checks"])
+        n_dup = next(c["count"] for c in dq["checks"] if c["name"] == "possible_residual_duplicate")
+        sql_note = (f'<div class="callout"><b>SQL로 다시 확인했습니다.</b> 정제 결과를 SQLite에 원본({dq["tables"]["raw_listings"]:,}건)·정제'
+                    f'({dq["tables"]["clean_listings"]:,}건)·차량({dq["tables"]["vehicles"]:,}대) 테이블로 나눠 저장하고, 품질 검사 {n_err}개를 SQL로 돌려 '
+                    f'{n_ok}개 모두 통과했습니다. 정제 단계별 건수와 중복 통계 {len(dq["recompute"])}개를 SQL로 다시 계산한 값도 pandas 결과와 모두 같았습니다. '
+                    f'다만 한쪽 게시물에만 VIN을 적어 다른 차로 묶인 것으로 보이는 \'중복 의심\' 차가 평가 데이터에 {n_dup:,}대'
+                    f'({n_dup / ov["split"]["test"] * 100:.1f}%) 남아 있어 경고로 기록했습니다.</div>')
 
     html = f"""<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
@@ -83,6 +98,7 @@ body {{ font-feature-settings:"calt" 0, "case" 0, "tnum" 0; margin:0; background
 h1 {{ font-size:32px; line-height:1.3; letter-spacing:-0.02em; margin:8px 0 12px; }}
 .lead {{ font-size:17px; color:#334155; max-width:64ch; }}
 .meta {{ margin-top:14px; color:var(--sub); font-size:13.5px; }}
+.demo-link {{ margin:14px 0 0; }} .demo-link a {{ display:inline-block; font-weight:600; font-size:14.5px; color:var(--acc); text-decoration:none; background:var(--acc-soft); padding:8px 14px; border-radius:999px; }} .demo-link a:hover {{ text-decoration:underline; }}
 .summary {{ margin-top:36px; background:#fff; border:1px solid var(--line); border-radius:14px; padding:28px; }}
 .summary h2 {{ margin-top:0; }}
 .kpis {{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin:18px 0 6px; }}
@@ -117,7 +133,8 @@ footer {{ margin-top:64px; color:var(--sub); font-size:13px; border-top:1px soli
   <div class="kicker">Machine Learning Case Study</div>
   <h1>중고차 시세 예측 모델</h1>
   <p class="lead">실제 중고차 매물 {ov['raw_rows']:,}건을 정제해 {ov['final_rows']:,}대의 차로 시세 예측 모델을 만들고, 점수가 부풀려지지 않는 평가 방식으로 시세표·선형 모델·Random Forest·XGBoost를 비교했습니다. 예측값과 함께 80% 시세 구간, 가격을 움직인 요인까지 돌려주는 API로 마무리했습니다.</p>
-  <div class="meta">데이터: Craigslist 미국 중고차 매물 (Kaggle 공개 데이터, 2021년 수집) · 실험 기록: MLflow · 모델: XGBoost (Optuna 튜닝) · 서빙: FastAPI</div>
+  <div class="meta">데이터: Craigslist 미국 중고차 매물 (Kaggle 공개 데이터, 2021년 수집) · 실험 기록: MLflow · 모델: {H.escape(sel)} · 서빙: FastAPI</div>
+  <p class="demo-link"><a href="https://sung-ju-park.github.io/projects/used-vehicle-price-demo/">차 정보를 넣고 시세를 직접 계산해 보기 →</a></p>
 </header>
 
 <div class="summary">
@@ -135,7 +152,7 @@ footer {{ margin-top:64px; color:var(--sub); font-size:13px; border-top:1px soli
     </ol></div>
     <div><h3>이렇게 판단했습니다</h3><ol>
       <li>중복 매물을 지우고 차 단위로 평가 데이터를 떼어, 실제로 처음 보는 차에 대한 성능을 쟀습니다.</li>
-      <li>모델이 '시세표'보다 나은지를 먼저 확인하고, 평가 데이터는 모델을 고른 뒤 한 번만 썼습니다.</li>
+      <li>모델 비교와 선택은 검증 데이터로 하고, 평가 데이터는 고른 모델의 최종 성능을 재는 데 한 번만 썼습니다.</li>
       <li>예측 구간이 실제로 80%를 담는지 확인하고, 모자라면 보정(CQR)했습니다.</li>
     </ol></div>
   </div>
@@ -148,25 +165,27 @@ footer {{ margin-top:64px; color:var(--sub); font-size:13px; border-top:1px soli
   <table><tr><th>단계</th><th>남은 매물</th><th>제외</th><th>기준</th></tr>{funnel_rows}</table>
   <div class="callout"><b>가장 많이 빠진 것은 중복 매물입니다.</b> VIN(차대번호)이 있는 매물 {dup['vin_rows']:,}건 중 실제 차는 {dup['vin_unique']:,}대였습니다. {dup['reposted_vins']:,}대가 여러 번 올라왔고(최대 {dup['max_reposts']}번), 이런 차의 {pct(dup['multi_region_share'], 0)}는 여러 지역에, {pct(dup['same_price_share'], 0)}는 같은 가격으로 반복 게시됐습니다. 딜러가 같은 차를 여러 지역에 올린 것입니다. VIN이 없는 매물은 제조사·모델·연식·주행거리가 모두 같으면 같은 차로 봤는데, 주행거리가 100,000처럼 1,000 단위로 딱 떨어지면 서로 다른 차가 겹칠 수 있어 이때는 가격까지 같아야 같은 차로 봤습니다.</div>
   <p>모델명도 자유 입력이라 'F150 XLT', 'f-150 lariat', 'super duty f-250'처럼 제각각이었습니다. 표기를 통일하고 트림을 떼어 기본 모델명으로 정리했고, 트럭은 1500·2500·3500 같은 적재 등급이 가격을 크게 가르기 때문에 'silverado 2500'처럼 등급까지 남기고 별도 변수(적재 등급)로도 뽑았습니다. 30건 이상 나온 {ov['n_models']}개 모델을 그대로 쓰고, 나머지는 제조사별 '기타'로 묶었습니다.</p>
+  {sql_note}
 </section>
 
 <section>
   <div class="num">02</div><h2>평가 설계: 점수가 부풀려지지 않게</h2>
-  <p>같은 차가 학습 데이터와 평가 데이터에 함께 들어가면, 모델은 시세를 배운 것이 아니라 그 차의 가격을 외운 것으로도 좋은 점수를 받습니다. 같은 XGBoost 설정으로 두 가지 방식을 비교했습니다.</p>
+  <p>같은 차가 학습 데이터와 평가 데이터에 함께 들어가면, 모델은 시세를 배운 것이 아니라 그 차의 가격을 외운 것으로도 좋은 점수를 받습니다. 같은 XGBoost 설정과 같은 절차로, 중복을 지웠는지만 다르게 해서 두 방식을 비교했습니다. 이 점검도 최종 평가 데이터에 속한 차는 빼고 나머지 데이터로만 했습니다.</p>
   {img('leakage', '평가 방식별 점수 비교')}
   <p>중복을 남긴 채 매물 단위로 무작위로 나누면 평가 매물의 <b>{pct(lk['test_rows_seen_in_train'], 0)}가 학습 데이터에 이미 있는 차</b>였고, ±20% 적중률이 {pct(lk['naive']['within_20'])}로 나왔습니다. 중복을 지우고 차 단위로 나눈 정직한 평가에서는 {pct(lk['honest']['within_20'])}입니다. 실제 서비스에서 만나는 것은 처음 보는 차이므로 이 프로젝트의 모든 수치는 뒤의 방식으로 쟀습니다.</p>
-  <div class="callout">중복을 지운 {ov['final_rows']:,}대를 학습 {ov['split']['fit']:,}대, 검증 {ov['split']['valid']:,}대(조기 종료·튜닝), 보정 {ov['split']['calib']:,}대(예측 구간 보정), 평가 {ov['split']['test']:,}대로 나눴습니다. 평가 데이터는 모델 선택이 끝난 뒤 한 번만 썼습니다. 지표는 오차율 중앙값(예측이 실제 가격에서 몇 % 벗어나는지의 중앙값)과 ±10%·±20% 적중률을 중심으로 봤습니다. 비싼 차 몇 대의 큰 오차에 끌려가지 않고, 판매자가 체감하는 '시세가 맞는가'에 가깝기 때문입니다.</div>
+  <div class="callout">중복을 지운 {ov['final_rows']:,}대를 차 단위로 다섯 묶음으로 나눴습니다. 학습 {ov['split']['fit']:,}대, 조기 종료 {ov['split']['es']:,}대(XGBoost 나무 수 결정), 검증 {ov['split']['valid']:,}대(모델 비교·선택과 튜닝), 보정 {ov['split']['calib']:,}대(예측 구간 보정), 평가 {ov['split']['test']:,}대입니다. 조기 종료용을 검증용과 따로 둔 것은, 나무 수를 정한 데이터로 다시 채점하면 XGBoost만 검증 점수가 유리해지기 때문입니다. 평가 데이터는 모델 선택이 끝난 뒤 최종 모델의 성능을 재는 데만 썼습니다. 지표는 오차율 중앙값(예측이 실제 가격에서 몇 % 벗어나는지의 중앙값)과 ±10%·±20% 적중률을 중심으로 봤습니다. 비싼 차 몇 대의 큰 오차에 끌려가지 않고, 판매자가 체감하는 '시세가 맞는가'에 가깝기 때문입니다.</div>
 </section>
 
 <section>
   <div class="num">03</div><h2>모델 비교</h2>
-  <p>머신러닝 없이 만들 수 있는 기준선부터 세웠습니다. 같은 모델·연식 매물 가격의 중앙값을 쓰는 '시세표' 방식으로, 표본이 적으면 모델 → 제조사 → 전체 순으로 넓혔습니다. 모든 모델은 log(가격)을 예측하고, 평가는 달러로 되돌려 했습니다.</p>
+  <p>머신러닝 없이 만들 수 있는 기준선부터 세웠습니다. 같은 모델·연식 매물 가격의 중앙값을 쓰는 '시세표' 방식으로, 표본이 적으면 모델 → 제조사 → 전체 순으로 넓혔습니다. 모든 모델은 log(가격)을 예측하고, 오차는 달러로 되돌려 쟀습니다. 아래 표와 그림은 <b>검증 데이터</b> 점수이며, 이 점수로 최종 모델을 골랐습니다.</p>
   {img('models', '모델별 오차율')}
-  <table><tr><th>모델</th><th>오차율 중앙값</th><th>±10% 적중</th><th>±20% 적중</th><th>평균 절대 오차</th><th>R² (log)</th><th>학습 시간</th></tr>{model_rows}</table>
+  <table><tr><th>모델 (검증 데이터)</th><th>오차율 중앙값</th><th>±10% 적중</th><th>±20% 적중</th><th>평균 절대 오차</th><th>R² (log)</th><th>학습 시간</th></tr>{model_rows}</table>
   {rf_text}
-  <p>XGBoost는 Optuna로 25번 후보를 탐색했습니다. 시간을 아끼려고 학습 데이터 일부(6만 건)와 높은 학습률로 후보를 고르고, 고른 설정을 전체 학습 데이터와 낮은 학습률로 다시 학습했습니다. 탐색의 기준은 검증 데이터였고 평가 데이터는 쓰지 않았습니다. 튜닝으로 줄어든 오차율은 {pct(xgb0['mdape'] - best['mdape'])}p로 작았습니다. 기본 설정도 이미 충분히 좋았다는 뜻이고, 큰 차이는 튜닝보다 데이터 정제와 모델 종류에서 나왔습니다. 최종적으로 시세표 방식 대비 오차율은 {pct(table['mdape'])}에서 {pct(best['mdape'])}로, 평균 절대 오차는 {usd(table['mae_usd'])}에서 {usd(best['mae_usd'])}로 줄었습니다.</p>
+  <p>XGBoost는 Optuna로 25번 후보를 탐색했습니다. 시간을 아끼려고 학습 데이터 일부(6만 건)와 높은 학습률로 후보를 고르고, 고른 설정을 전체 학습 데이터와 낮은 학습률로 다시 학습했습니다. 탐색의 기준도 검증 데이터였습니다. 튜닝으로 줄어든 검증 오차율은 {pct(xgb0['mdape'] - xgb1['mdape'])}p로 작았습니다. 기본 설정도 이미 충분히 좋았다는 뜻이고, 큰 차이는 튜닝보다 데이터 정제와 모델 종류에서 나왔습니다.</p>
+  <div class="callout"><b>최종 평가.</b> 검증 오차율이 가장 낮은 {H.escape(sel)}을 최종 모델로 정한 뒤, 평가 데이터 {ov['split']['test']:,}대로 한 번 채점했습니다. 오차율 중앙값 {pct(best['mdape'])}, ±20% 적중 {pct(best['within_20'])}, 평균 절대 오차 {usd(best['mae_usd'])}로 검증 점수({pct(m[sel]['mdape'])})와 비슷해, 검증 데이터에 과하게 맞춘 흔적은 보이지 않았습니다. 같은 평가 데이터에서 시세표 방식은 오차율 {pct(table['mdape'])}, 평균 절대 오차 {usd(table['mae_usd'])}였습니다(비교 참고용, 선택에는 쓰지 않음).</div>
   {img('mlflow', 'MLflow 실험 기록 화면')}
-  <p class="note">모든 실행(기준선, 비교 모델, 튜닝 25회, 평가 방식 점검, 최종 모델)의 설정과 지표를 MLflow에 기록했고, 최종 모델은 모델 레지스트리에 'used-vehicle-price'로 등록했습니다.</p>
+  <p class="note">모든 실행(기준선, 비교 모델, 튜닝 25회, 평가 방식 점검, 최종 평가)의 설정과 지표를 MLflow에 기록했고, 최종 모델은 모델 레지스트리에 'used-vehicle-price'로 등록했습니다.</p>
   {img('pred_vs_actual', '예측 가격과 실제 가격', 'narrow')}
 </section>
 
@@ -183,7 +202,7 @@ footer {{ margin-top:64px; color:var(--sub); font-size:13px; border-top:1px soli
   <p>차종별로 오차를 나눠 봤습니다. 트럭·픽업은 시세표 방식의 오차가 {pct(seg_t['truck']['mdape'])}로 큰 편이었는데, 모델은 이를 {pct(seg_m['truck']['mdape'])}로 줄여 차종 가운데 가장 크게 개선했습니다({pct(1 - seg_m['truck']['mdape'] / seg_t['truck']['mdape'], 0)} 감소). 같은 모델·연식 안에서도 적재 등급, 구동 방식, 디젤 여부에 따라 가격이 크게 달라지는데, 시세표는 이 차이를 담지 못하기 때문으로 보입니다.</p>
   {img('segments', '차종별 오차율')}
   <table><tr><th>차종</th><th>평가 매물</th><th>시세표 오차율</th><th>모델 오차율</th><th>±20% 적중</th><th>80% 구간 포함률</th></tr>{seg_rows}</table>
-  <p>트럭만으로 따로 학습한 모델도 만들어 봤습니다. 트럭 평가 매물 {tr['n_test']:,}대에서 트럭 전용 모델의 오차율은 {pct(tr['truck_only']['mdape'], 2)}, 전체 데이터로 학습한 모델은 {pct(tr['global']['mdape'], 2)}였습니다. {'트럭 전용 모델이 ' + pct(truck_gain) + 'p 낮았습니다.' if truck_gain > 0.002 else ('전체 모델이 ' + pct(-truck_gain) + 'p 낮았습니다. 다른 차종에서 배운 감가 패턴이 트럭에도 도움이 되는 것으로 보여, 하나의 모델로 운영하는 편이 낫다고 판단했습니다.' if truck_gain < -0.002 else '차이가 거의 없어, 관리가 쉬운 하나의 모델로 운영하는 편이 낫다고 판단했습니다.')}</p>
+  <p>트럭만으로 따로 학습한 모델도 만들어 봤습니다. 운영 방식을 정하는 판단이라 평가 데이터가 아닌 검증 데이터로 비교했습니다. 검증 데이터의 트럭 {tr['n_eval']:,}대에서 트럭 전용 모델의 오차율은 {pct(tr['truck_only']['mdape'], 2)}, 전체 데이터로 학습한 모델은 {pct(tr['global']['mdape'], 2)}였습니다. {'트럭 전용 모델이 ' + pct(truck_gain) + 'p 낮았습니다.' if truck_gain > 0.002 else ('전체 모델이 ' + pct(-truck_gain) + 'p 낮았습니다. 다른 차종에서 배운 감가 패턴이 트럭에도 도움이 되는 것으로 보여, 하나의 모델로 운영하는 편이 낫다고 판단했습니다.' if truck_gain < -0.002 else '차이가 거의 없어, 관리가 쉬운 하나의 모델로 운영하는 편이 낫다고 판단했습니다.')}</p>
   {img('retention', '연식별 가격 유지율')}
   <p class="note">유지율은 차종 구성이 다른 효과를 피하려고, 모델마다 '차령 1~3년 가격 중앙값' 대비 비율을 먼저 구한 뒤 차종별로 모델들의 중앙값을 냈습니다. 매물 가격 기준이라 실제 거래 가격과는 다를 수 있습니다.</p>
 </section>
@@ -216,10 +235,10 @@ footer {{ margin-top:64px; color:var(--sub); font-size:13px; border-top:1px soli
 {{"year": 2016, "manufacturer": "ford", "model": "F-150 XLT",
   "odometer": 98000, "type": "pickup", "drive": "4wd", "state": "tx"}}
 
-→ {{"estimate_usd": 31490, "range_80_usd": [22880, 37900],
+→ {{"estimate_usd": 30030, "range_80_usd": [24570, 38260],
     "model_key": "ford f-150",
-    "top_factors": [{{"feature": "차령", "effect_pct": 47.5}},
-                    {{"feature": "모델", "effect_pct": 36.0}}, …]}}</pre>
+    "top_factors": [{{"feature": "차령", "effect_pct": 50.1}},
+                    {{"feature": "모델", "effect_pct": 39.3}}, …]}}</pre>
   <p class="note">정제 규칙과 API는 pytest로 검증합니다. 처음 보는 모델명도 제조사별 '기타'로 처리해 예측하고, 범위를 벗어난 입력(1995년 이전 연식 등)은 거부합니다. 학습 데이터에 주(state)가 빠진 매물이 없었기 때문에, 주는 필수 입력으로 받습니다.</p>
 </section>
 
@@ -228,8 +247,9 @@ footer {{ margin-top:64px; color:var(--sub); font-size:13px; border-top:1px soli
   <ul>
     <li><b>매물 가격이지 거래 가격이 아닙니다.</b> 판매자가 부른 가격이라 실제 거래 가격보다 높을 수 있습니다. 거래 데이터가 있다면 매물가와 거래가의 차이부터 모델링해야 합니다.</li>
     <li><b>시간에 따른 변화는 보지 못했습니다.</b> 데이터가 2021년 한두 달치라 시세 흐름이나 계절성을 반영하지 못했습니다. 실제 서비스라면 과거로 학습해 이후 기간으로 평가하고, 성능을 주기적으로 감시해 재학습 시점을 정해야 합니다.</li>
-    <li><b>트럭 정보가 부족합니다.</b> 화물차 시세에 중요한 적재 중량, 차축, 적재함 형태, 정비 이력은 데이터에 없어 모델명에서 적재 등급만 뽑았습니다.</li>
+    <li><b>상용 트럭 전용 데이터가 아닙니다.</b> 승용차 중심 데이터이고 트럭·픽업은 {pct(ov['truck_share'], 0)}이며 대부분 픽업입니다. 화물차 시세에 중요한 적재 중량, 차축, 적재함 형태, 정비 이력도 데이터에 없어 모델명에서 적재 등급만 뽑았습니다.</li>
     <li><b>미국 데이터입니다.</b> 국내 시장은 제조사 구성과 감가 구조가 다르므로, 같은 정제·평가 방식을 국내 매물 데이터에 적용해 다시 학습해야 합니다.</li>
+    <li><b>운영 단계는 하지 않았습니다.</b> MLflow는 실험 기록과 모델 등록에 썼고, API는 로컬에서 동작을 확인했습니다. 클라우드 배포나 운영 중 성능 모니터링은 다루지 않았습니다.</li>
   </ul>
 </section>
 

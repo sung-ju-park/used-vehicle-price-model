@@ -12,9 +12,10 @@ MLFLOW_ARTIFACTS = (ROOT / "mlruns").as_uri()
 EXPERIMENT = "used-vehicle-price"
 
 SEED = 42
-TEST_SIZE = 0.2        # 평가용으로 떼어 두는 매물 비율 (차량 단위)
-CALIB_SIZE = 0.1       # 학습용 중 예측 구간 보정에 쓰는 비율
-VALID_SIZE = 0.1       # 학습용 중 조기 종료·튜닝 검증에 쓰는 비율
+TEST_SIZE = 0.2        # 평가용: 최종 모델 성능을 한 번 재는 데만 쓴다
+VALID_SIZE = 0.1       # 검증용: 모델 비교·선택과 하이퍼파라미터 튜닝
+CALIB_SIZE = 0.1       # 보정용: 예측 구간(CQR) 보정
+ES_SIZE = 0.05         # 조기 종료용: XGBoost 나무 수 결정 (검증 점수가 XGBoost에 유리해지지 않도록 검증용과 분리)
 
 # 데이터는 2021년 4~5월에 수집된 매물이다. 차령 = 기준 연도 - 연식 (2022년식은 0년)
 REF_YEAR = 2022

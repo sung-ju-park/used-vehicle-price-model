@@ -19,7 +19,7 @@ def fit_quantile(xc: dict, ys: dict, params: dict):
     m = xgb.XGBRegressor(objective="reg:quantileerror", quantile_alpha=np.array([ALPHA / 2, 0.5, 1 - ALPHA / 2]),
                          n_estimators=1500, learning_rate=0.1, tree_method="hist", enable_categorical=True,
                          early_stopping_rounds=50, random_state=SEED, n_jobs=-1, **p)
-    m.fit(xc["fit"], ys["fit"], eval_set=[(xc["valid"], ys["valid"])], verbose=False)
+    m.fit(xc["fit"], ys["fit"], eval_set=[(xc["es"], ys["es"])], verbose=False)
     return m
 
 

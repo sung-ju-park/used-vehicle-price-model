@@ -26,12 +26,12 @@ from split import split_indices
 
 def save_serving(data, qmodel, qhat):
     MODELS.mkdir(exist_ok=True)
-    data["models"]["xgb_tuned"].get_booster().save_model(MODELS / "price_model.ubj")
+    data["model"].get_booster().save_model(MODELS / "price_model.ubj")
     qmodel.get_booster().save_model(MODELS / "quantile_model.ubj")
     meta = {
         "features": FEATURES, "categorical": CATEGORICAL, "categories": data["cats"],
         "model_vocab": sorted(data["vocab"]), "conformal_q": qhat, "ref_year": REF_YEAR,
-        "best_iteration": int(data["models"]["xgb_tuned"].best_iteration),
+        "selected_model": data["selected"], "best_iteration": int(data["model"].best_iteration),
         "quantile_best_iteration": int(qmodel.best_iteration),
     }
     (MODELS / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
@@ -43,8 +43,9 @@ def register(data, metrics: dict):
     with mlflow.start_run(run_name="최종 모델 등록"):
         mlflow.set_tag("purpose", "final_model")
         mlflow.log_params({k: v for k, v in data["best_params"].items()})
-        mlflow.log_metrics({k: v for k, v in metrics.items() if isinstance(v, float)})
-        mlflow.xgboost.log_model(data["models"]["xgb_tuned"], name="model", registered_model_name="used-vehicle-price")
+        mlflow.log_metrics({f"test_{k}": v for k, v in metrics.items() if isinstance(v, float)})
+        mlflow.set_tag("selected_model", data["selected"])
+        mlflow.xgboost.log_model(data["model"], name="model", registered_model_name="used-vehicle-price")
         for f in ("quantile_model.ubj", "meta.json"):
             mlflow.log_artifact(str(MODELS / f), artifact_path="serving")
 
@@ -66,7 +67,7 @@ def main(reuse: bool):
         print("2/5 모델 비교 실험 (MLflow 기록)")
         data = train.run(df, idx)
         print("    평가 방식 점검")
-        leak = train.leakage_check(with_dups, data)
+        leak = train.leakage_check(with_dups, df, set(data["parts"]["test"]["group"]))
         cache.write_bytes(pickle.dumps((data, leak)))
 
     print("3/5 예측 구간")
@@ -75,7 +76,7 @@ def main(reuse: bool):
     raw_lo, raw_hi = intervals.interval(qmodel, xc["test"])
     qhat = intervals.conformal_q(qmodel, xc["calib"], ys["calib"])
     lo, hi = intervals.interval(qmodel, xc["test"], qhat)
-    point = data["preds"]["XGBoost (튜닝)"]
+    point = data["test_point"]
     seg = analyze.segment(data["parts"]["test"]["type"]).to_numpy()
     iv = {"raw": intervals.summarize(ys["test"], raw_lo, raw_hi, point),
           "conformal": intervals.summarize(ys["test"], lo, hi, point), "qhat": qhat,
@@ -84,9 +85,9 @@ def main(reuse: bool):
 
     print("4/5 오차 분석")
     test_df = data["parts"]["test"]
-    best = data["models"]["xgb_tuned"]
-    seg_res = analyze.segments(test_df, data["xs"]["test"], ys["test"], point, data["preds"]["기준선: 시세표"])
-    truck = analyze.truck_only_model(data["parts"], xc, ys, data["best_params"], point)
+    best = data["model"]
+    seg_res = analyze.segments(test_df, data["xs"]["test"], ys["test"], point, data["test_table"])
+    truck = analyze.truck_only_model(data["parts"], xc, ys, data["best_params"], data["valid_point"])
     contrib = analyze.contributions(best, xc["test"])
     from features import build
     x_all, _ = build(df, data["vocab"])
@@ -95,20 +96,24 @@ def main(reuse: bool):
     ratio_all = anom.pop("ratio_all")
 
     save_serving(data, qmodel, qhat)
-    register(data, data["results"]["XGBoost (튜닝)"])
+    register(data, data["test"]["selected"])
 
     res = {
         "overview": {"raw_rows": int(len(raw)), "clean_rows_with_dups": int(len(with_dups)), "final_rows": int(len(df)),
                      "split": {k: int(len(v)) for k, v in idx.items()}, "n_models": int(len(data["vocab"])),
                      "price_median": float(df["price"].median()), "truck_share": float(df["type"].isin({"truck", "pickup"}).mean())},
         "funnel": funnel.to_dict("records"), "duplicates": duplicate_stats(raw), "leakage": leak,
-        "models": data["results"], "best_params": data["best_params"], "tune_seconds": data["tune_seconds"],
+        "models": data["results"], "selected": data["selected"], "test": data["test"], "best_params": data["best_params"], "tune_seconds": data["tune_seconds"],
         "trials": data["trials"], "intervals": iv, "segments": seg_res, "truck_only": truck,
         "contributions": contrib, "retention": retention, "anomalies": anom,
     }
     (OUT / "results.json").write_text(json.dumps(res, ensure_ascii=False, indent=1, default=float), encoding="utf-8")
     np.save(PROCESSED / "test_arrays.npy", {"y": ys["test"], "pred": point, "lo": lo, "hi": hi, "seg": seg,
-                                            "ratio": ratio_all, "table": data["preds"]["기준선: 시세표"]}, allow_pickle=True)
+                                            "ratio": ratio_all, "table": data["test_table"]}, allow_pickle=True)
+
+    print("    SQLite 저장·SQL 품질 검사")
+    import build_db
+    build_db.main()
 
     print("5/5 그래프·리포트")
     import figures, make_readme, report

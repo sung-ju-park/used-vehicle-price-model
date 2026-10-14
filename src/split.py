@@ -1,23 +1,28 @@
-"""평가 데이터 분리.
+"""데이터 분리.
 
-정제·중복 제거를 마친 데이터에서는 한 행이 한 대의 차다. 차 단위로 평가용(20%)을 먼저 떼어 두고,
-나머지를 학습용(fit), 검증용(valid, 조기 종료·튜닝), 보정용(calib, 예측 구간 보정)으로 나눈다.
-평가용은 모델 선택이 끝날 때까지 한 번도 보지 않는다.
+정제·중복 제거를 마친 데이터에서는 한 행이 한 대의 차다. 차 단위로 다섯 묶음으로 나눈다.
+
+- fit   (55%) 학습
+- es    ( 5%) XGBoost 조기 종료 (나무 수 결정)
+- valid (10%) 모델 비교·선택, 하이퍼파라미터 튜닝
+- calib (10%) 예측 구간(CQR) 보정
+- test  (20%) 평가: 모델 선택이 끝난 뒤 최종 모델 성능을 재는 데만 쓴다
 """
 import numpy as np
-import pandas as pd
 
-from config import CALIB_SIZE, SEED, TEST_SIZE, VALID_SIZE
+from config import CALIB_SIZE, ES_SIZE, SEED, TEST_SIZE, VALID_SIZE
 
 
 def split_indices(n: int, seed: int = SEED) -> dict:
     rng = np.random.default_rng(seed)
     idx = rng.permutation(n)
-    n_test = int(n * TEST_SIZE)
-    test, rest = idx[:n_test], idx[n_test:]
-    n_valid, n_calib = int(n * VALID_SIZE), int(n * CALIB_SIZE)
-    valid, calib, fit = rest[:n_valid], rest[n_valid:n_valid + n_calib], rest[n_valid + n_calib:]
-    return {"fit": np.sort(fit), "valid": np.sort(valid), "calib": np.sort(calib), "test": np.sort(test)}
+    sizes = {"test": TEST_SIZE, "valid": VALID_SIZE, "calib": CALIB_SIZE, "es": ES_SIZE}
+    out, start = {}, 0
+    for k, frac in sizes.items():
+        out[k] = np.sort(idx[start:start + int(n * frac)])
+        start += int(n * frac)
+    out["fit"] = np.sort(idx[start:])
+    return {k: out[k] for k in ("fit", "es", "valid", "calib", "test")}
 
 
 def naive_split(n: int, seed: int = SEED):

@@ -46,17 +46,18 @@ def segments(test_df, x_test, y_log, pred_log, table_pred) -> dict:
     }
 
 
-def truck_only_model(parts, xc, ys, params, global_pred_test) -> dict:
-    """트럭·픽업만으로 학습한 모델이 전체 데이터로 학습한 모델보다 트럭을 더 잘 맞히는가."""
+def truck_only_model(parts, xc, ys, params, global_pred_valid) -> dict:
+    """트럭·픽업만으로 학습한 모델이 전체 데이터로 학습한 모델보다 트럭을 더 잘 맞히는가.
+    운영 방식을 정하는 판단이므로 검증 데이터(valid)로 비교한다."""
     def mask(k):
         return parts[k]["type"].isin(TRUCK_TYPES).to_numpy()
 
-    mf, mv, mt = mask("fit"), mask("valid"), mask("test")
+    mf, me, mv = mask("fit"), mask("es"), mask("valid")
     m = xgboost_model({**params, "learning_rate": 0.03}, n_estimators=8000)
-    m.fit(xc["fit"][mf], ys["fit"][mf], eval_set=[(xc["valid"][mv], ys["valid"][mv])], verbose=False)
-    own = evaluate(ys["test"][mt], m.predict(xc["test"][mt]))
-    glob = evaluate(ys["test"][mt], global_pred_test[mt])
-    return {"n_train": int(mf.sum()), "n_test": int(mt.sum()), "truck_only": own, "global": glob}
+    m.fit(xc["fit"][mf], ys["fit"][mf], eval_set=[(xc["es"][me], ys["es"][me])], verbose=False)
+    own = evaluate(ys["valid"][mv], m.predict(xc["valid"][mv]))
+    glob = evaluate(ys["valid"][mv], global_pred_valid[mv])
+    return {"n_train": int(mf.sum()), "n_eval": int(mv.sum()), "eval_set": "valid", "truck_only": own, "global": glob}
 
 
 def contributions(model, x_test: pd.DataFrame, n: int = 6000, seed: int = 0) -> dict:

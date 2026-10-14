@@ -88,12 +88,12 @@ def models(r):
     order = sorted([kv for kv in r["models"].items() if kv[0] != "기준선: 전체 중앙값"], key=lambda kv: kv[1]["mdape"])
     names = [k for k, _ in order]
     vals = [v["mdape"] for _, v in order]
-    colors = [BLUE if n == "XGBoost (튜닝)" else (GRAY if n.startswith("기준선") else "#8fb6e8") for n in names]
+    colors = [BLUE if n == r["selected"] else (GRAY if n.startswith("기준선") else "#8fb6e8") for n in names]
     fig, ax = plt.subplots(figsize=(8.2, 3.5))
     _hbar(ax, names, vals, colors, lambda v: f"{v*100:.1f}%")
-    ax.set_xlabel("평가 데이터 오차율 중앙값 (낮을수록 좋음)")
+    ax.set_xlabel("검증 데이터 오차율 중앙값 (낮을수록 좋음)")
     ax.xaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0, decimals=0))
-    _title(ax, "모델별 오차율: 시세표보다 얼마나 나은가")
+    _title(ax, "모델별 검증 오차율: 이 점수로 최종 모델을 골랐다")
     _save(fig, "models")
 
 
@@ -139,7 +139,7 @@ def segments(r):
     a = [table[g]["mdape"] for g in order]
     b = [model[g]["mdape"] for g in order]
     ax.barh(y + h / 2 + 0.01, a, height=h, color=GRAY, label="기준선: 시세표")
-    ax.barh(y - h / 2 - 0.01, b, height=h, color=BLUE, label="XGBoost (튜닝)")
+    ax.barh(y - h / 2 - 0.01, b, height=h, color=BLUE, label=r["selected"])
     for yi, va, vb in zip(y, a, b):
         ax.text(va + 0.003, yi + h / 2, f"{va*100:.1f}%", va="center", fontsize=9, color=SUB)
         ax.text(vb + 0.003, yi - h / 2, f"{vb*100:.1f}%", va="center", fontsize=9, color=INK)
