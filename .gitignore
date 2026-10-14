@@ -1,0 +1,11 @@
+data/raw/*.csv
+data/processed/
+mlruns/
+mlflow.db
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+models/*.ubj
+models/meta.json
